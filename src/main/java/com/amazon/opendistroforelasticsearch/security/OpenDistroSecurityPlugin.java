@@ -194,6 +194,16 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
     private volatile NamedXContentRegistry namedXContentRegistry = null;
     private volatile DlsFlsRequestValve dlsFlsValve = null;
 
+
+    /**
+     * Used in case the "opendistro_security_whitelisted_apis" setting is not found
+     */
+    private static final List<String> DEFAULT_WHITELISTED_APIS = new ArrayList<>(Arrays.asList(
+            "/_cat/plugins",
+            "/_cluster/health",
+            "/_cat/nodes")
+    );
+
     @Override
     public void close() throws IOException {
         //TODO implement close
@@ -224,6 +234,8 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
     private static boolean isSslCertReloadEnabled(final Settings settings) {
         return settings.getAsBoolean(ConfigConstants.OPENDISTRO_SECURITY_SSL_CERT_RELOAD_ENABLED, false);
     }
+
+
 
     public OpenDistroSecurityPlugin(final Settings settings, final Path configPath) {
         super(settings, configPath, isDisabled(settings));
@@ -471,7 +483,6 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
         if(client || disabled || sslOnly) {
             return (rh) -> rh;
         }
-
         return (rh) -> securityRestHandler.wrap(rh);
     }
 
@@ -789,7 +800,7 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
         dcf.registerDCFListener(evaluator);
         
         cr.setDynamicConfigFactory(dcf);
-        
+
         odsf = new OpenDistroSecurityFilter(settings, evaluator, adminDns, dlsFlsValve, auditLog, threadPool, cs, compatConfig, irr);
 
 
@@ -857,6 +868,16 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
         settings.add(Setting.listSetting(ConfigConstants.OPENDISTRO_SECURITY_PROTECTED_INDICES_ROLES_KEY, ConfigConstants.OPENDISTRO_SECURITY_PROTECTED_INDICES_ROLES_DEFAULT, Function.identity(), Property.NodeScope, Property.Filtered, Property.Final));
 
         if(!sslOnly) {
+
+            //Enables whitelisting, by default it is disabled to avoid issues
+            settings.add(Setting.boolSetting(ConfigConstants.OPENDISTRO_SECURITY_WHITELISTING_ENABLED,false,
+                    Property.NodeScope,Property.Dynamic,Property.Consistent));
+
+            //List of whitelisted APIs
+            settings.add(Setting.listSetting(ConfigConstants.OPENDISTRO_SECURITY_WHITELISTED_APIS,
+                    DEFAULT_WHITELISTED_APIS,Function.identity(),Property.NodeScope,Property.Dynamic,
+                    Property.Consistent));
+
             settings.add(Setting.listSetting(ConfigConstants.OPENDISTRO_SECURITY_AUTHCZ_ADMIN_DN, Collections.emptyList(), Function.identity(), Property.NodeScope)); //not filtered here
     
             settings.add(Setting.simpleString(ConfigConstants.OPENDISTRO_SECURITY_CONFIG_INDEX_NAME, Property.NodeScope, Property.Filtered));

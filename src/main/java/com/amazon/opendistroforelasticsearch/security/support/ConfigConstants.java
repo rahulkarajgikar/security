@@ -30,16 +30,32 @@
 
 package com.amazon.opendistroforelasticsearch.security.support;
 
+import org.elasticsearch.common.settings.Setting;
+
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 
 public class ConfigConstants {
 
 
+
+
     public static final String OPENDISTRO_SECURITY_CONFIG_PREFIX = "_opendistro_security_";
+
+    /**
+     * Setting for enabling whitelisting
+     */
+    //public static final String OPENDISTRO_SECURITY_WHITELISTING_ENABLED = OPENDISTRO_SECURITY_CONFIG_PREFIX+"whitelisting_enabled";
+    public static final String OPENDISTRO_SECURITY_WHITELISTING_ENABLED = "opendistro_security_whitelisting_enabled";
+    /**
+     * Setting for listing the whitelisted apis
+     */
+    //public static final String OPENDISTRO_SECURITY_WHITELISTED_APIS = OPENDISTRO_SECURITY_CONFIG_PREFIX+"whitelisted_apis";
+    public static final String OPENDISTRO_SECURITY_WHITELISTED_APIS = "opendistro_security_whitelisted_apis";
 
     public static final String OPENDISTRO_SECURITY_CHANNEL_TYPE = OPENDISTRO_SECURITY_CONFIG_PREFIX+"channel_type";
 

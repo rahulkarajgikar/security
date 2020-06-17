@@ -30,7 +30,12 @@
 
 package com.amazon.opendistroforelasticsearch.security.filter;
 
+import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
 
 import javax.net.ssl.SSLPeerUnverifiedException;
 
@@ -60,6 +65,8 @@ import com.amazon.opendistroforelasticsearch.security.support.ConfigConstants;
 import com.amazon.opendistroforelasticsearch.security.support.HTTPHelper;
 import com.amazon.opendistroforelasticsearch.security.user.User;
 
+import static com.amazon.opendistroforelasticsearch.security.support.ConfigConstants.OPENDISTRO_SECURITY_WHITELISTED_APIS;
+
 public class OpenDistroSecurityRestFilter {
 
     protected final Logger log = LogManager.getLogger(this.getClass());
@@ -70,6 +77,11 @@ public class OpenDistroSecurityRestFilter {
     private final Settings settings;
     private final Path configPath;
     private final CompatConfig compatConfig;
+    private static final List<String> defaultWhitelistedAPIs = new ArrayList<>(Arrays.asList(
+            "/_cat/plugins",
+            "/_cluster/health",
+            "/_cat/nodes"
+    ));
 
     public OpenDistroSecurityRestFilter(final BackendRegistry registry, final AuditLog auditLog,
             final ThreadPool threadPool, final PrincipalExtractor principalExtractor,
@@ -83,33 +95,68 @@ public class OpenDistroSecurityRestFilter {
         this.configPath = configPath;
         this.compatConfig = compatConfig;
     }
-    
+
     public RestHandler wrap(RestHandler original) {
         return new RestHandler() {
-            
+
             @Override
             public void handleRequest(RestRequest request, RestChannel channel, NodeClient client) throws Exception {
                 org.apache.logging.log4j.ThreadContext.clearAll();
-                if(!checkAndAuthenticateRequest(request, channel, client)) {
-                    original.handleRequest(request, channel, client);
+                if (checkRequestIsWhitelisted(request, channel, client)) {
+                    if (!checkAndAuthenticateRequest(request, channel, client)) {
+                        original.handleRequest(request, channel, client);
+                    }
                 }
             }
         };
     }
 
-    private boolean checkAndAuthenticateRequest(RestRequest request, RestChannel channel, NodeClient client) throws Exception {
+    private BytesRestResponse createNotWhitelistedErrorResponse(RestChannel channel, String errorMessage,
+            RestStatus status) throws IOException {
+        return new BytesRestResponse(status, channel.newErrorBuilder().startObject()
+                .field("error", errorMessage)
+                .field("status", status.getStatus())
+                .endObject());
+    }
+
+    private boolean checkRequestIsWhitelisted(RestRequest request, RestChannel channel,
+            NodeClient client) throws IOException {
+        //String temp = threadContext.getHeader(ConfigConstants.OPENDISTRO_SECURITY_WHITELISTING_ENABLED);
+        boolean isWhitelistingEnabled = settings.getAsBoolean(
+                ConfigConstants.OPENDISTRO_SECURITY_WHITELISTING_ENABLED,
+                false
+        );
+        HashSet<String> whitelistedAPIs = new HashSet<>(settings.getAsList(
+                OPENDISTRO_SECURITY_WHITELISTED_APIS,
+                defaultWhitelistedAPIs
+        ));
+        //if whitelisting is enabled but the request path is not whitelisted then return false, otherwise true.
+        if (isWhitelistingEnabled && !whitelistedAPIs.contains(request.path())) {
+            channel.sendResponse(createNotWhitelistedErrorResponse(
+                    channel,
+                    request.path() + " API not whitelisted",
+                    RestStatus.FORBIDDEN
+            ));
+            return false;
+        }
+        return true;
+    }
+
+
+    private boolean checkAndAuthenticateRequest(RestRequest request, RestChannel channel,
+            NodeClient client) throws Exception {
 
         threadContext.putTransient(ConfigConstants.OPENDISTRO_SECURITY_ORIGIN, Origin.REST.toString());
-        
-        if(HTTPHelper.containsBadHeader(request)) {
+
+        if (HTTPHelper.containsBadHeader(request)) {
             final ElasticsearchException exception = ExceptionUtils.createBadHeaderException();
             log.error(exception);
             auditLog.logBadHeaders(request);
             channel.sendResponse(new BytesRestResponse(channel, RestStatus.FORBIDDEN, exception));
             return true;
         }
-        
-        if(SSLRequestHelper.containsBadHeader(threadContext, ConfigConstants.OPENDISTRO_SECURITY_CONFIG_PREFIX)) {
+
+        if (SSLRequestHelper.containsBadHeader(threadContext, ConfigConstants.OPENDISTRO_SECURITY_CONFIG_PREFIX)) {
             final ElasticsearchException exception = ExceptionUtils.createBadHeaderException();
             log.error(exception);
             auditLog.logBadHeaders(request);
@@ -119,13 +166,13 @@ public class OpenDistroSecurityRestFilter {
 
         final SSLInfo sslInfo;
         try {
-            if((sslInfo = SSLRequestHelper.getSSLInfo(settings, configPath, request, principalExtractor)) != null) {
-                if(sslInfo.getPrincipal() != null) {
+            if ((sslInfo = SSLRequestHelper.getSSLInfo(settings, configPath, request, principalExtractor)) != null) {
+                if (sslInfo.getPrincipal() != null) {
                     threadContext.putTransient("_opendistro_security_ssl_principal", sslInfo.getPrincipal());
                 }
-                
-                if(sslInfo.getX509Certs() != null) {
-                     threadContext.putTransient("_opendistro_security_ssl_peer_certificates", sslInfo.getX509Certs());
+
+                if (sslInfo.getX509Certs() != null) {
+                    threadContext.putTransient("_opendistro_security_ssl_peer_certificates", sslInfo.getX509Certs());
                 }
                 threadContext.putTransient("_opendistro_security_ssl_protocol", sslInfo.getProtocol());
                 threadContext.putTransient("_opendistro_security_ssl_cipher", sslInfo.getCipher());
@@ -136,12 +183,12 @@ public class OpenDistroSecurityRestFilter {
             channel.sendResponse(new BytesRestResponse(channel, RestStatus.FORBIDDEN, e));
             return true;
         }
-        
-        if(!compatConfig.restAuthEnabled()) {
+
+        if (!compatConfig.restAuthEnabled()) {
             return false;
         }
 
-        if(request.method() != Method.OPTIONS 
+        if (request.method() != Method.OPTIONS
                 && !"/_opendistro/_security/health".equals(request.path())) {
             if (!registry.authenticate(request, channel, threadContext)) {
                 // another roundtrip
@@ -149,10 +196,13 @@ public class OpenDistroSecurityRestFilter {
                 return true;
             } else {
                 // make it possible to filter logs by username
-                org.apache.logging.log4j.ThreadContext.put("user", ((User)threadContext.getTransient(ConfigConstants.OPENDISTRO_SECURITY_USER)).getName());
+                org.apache.logging.log4j.ThreadContext.put(
+                        "user",
+                        ((User) threadContext.getTransient(ConfigConstants.OPENDISTRO_SECURITY_USER)).getName()
+                );
             }
         }
-        
+
         return false;
     }
 }
