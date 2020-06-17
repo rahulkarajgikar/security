@@ -36,13 +36,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.function.Function;
 
 import javax.net.ssl.SSLPeerUnverifiedException;
 
+import com.amazon.opendistroforelasticsearch.security.OpenDistroSecurityPlugin;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.client.node.NodeClient;
+import org.elasticsearch.cluster.service.ClusterService;
+import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.rest.BytesRestResponse;
@@ -65,6 +69,7 @@ import com.amazon.opendistroforelasticsearch.security.support.ConfigConstants;
 import com.amazon.opendistroforelasticsearch.security.support.HTTPHelper;
 import com.amazon.opendistroforelasticsearch.security.user.User;
 
+import static com.amazon.opendistroforelasticsearch.security.OpenDistroSecurityPlugin.DEFAULT_WHITELISTED_APIS;
 import static com.amazon.opendistroforelasticsearch.security.support.ConfigConstants.OPENDISTRO_SECURITY_WHITELISTED_APIS;
 
 public class OpenDistroSecurityRestFilter {
@@ -77,15 +82,31 @@ public class OpenDistroSecurityRestFilter {
     private final Settings settings;
     private final Path configPath;
     private final CompatConfig compatConfig;
+    private final ClusterService cs;
     private static final List<String> defaultWhitelistedAPIs = new ArrayList<>(Arrays.asList(
             "/_cat/plugins",
             "/_cluster/health",
             "/_cat/nodes"
     ));
 
+    private boolean isWhitelistingEnabled;
+    private HashSet<String> whitelistedAPIs;
+
+    private void setIsWhitelistingEnabled(boolean whitelistingEnabled){
+        log.info("Whitelisting is being turned " + (whitelistingEnabled?"on":"off"));
+        this.isWhitelistingEnabled = whitelistingEnabled;
+    }
+
+    //also add a check here to see what exactly is being whitelisted, maybe check that newWhitelistedAPIs is not null
+    private void setWhitelistedAPIs(List<String> newWhitelistedAPIs){
+        log.info("The set of whitelisted apis is being updated");
+        this.whitelistedAPIs = new HashSet<>(newWhitelistedAPIs);
+    }
+
     public OpenDistroSecurityRestFilter(final BackendRegistry registry, final AuditLog auditLog,
             final ThreadPool threadPool, final PrincipalExtractor principalExtractor,
-            final Settings settings, final Path configPath, final CompatConfig compatConfig) {
+            final Settings settings, final Path configPath, final CompatConfig compatConfig, final ClusterService cs,
+            final Setting<Boolean> whitelistingEnabledSetting, final Setting<List<String>> whitelistedAPISetting) {
         super();
         this.registry = registry;
         this.auditLog = auditLog;
@@ -94,14 +115,22 @@ public class OpenDistroSecurityRestFilter {
         this.settings = settings;
         this.configPath = configPath;
         this.compatConfig = compatConfig;
+        this.cs = cs;
+        this.isWhitelistingEnabled = whitelistingEnabledSetting.get(settings);
+        this.whitelistedAPIs = new HashSet<>(whitelistedAPISetting.get(settings));
+
+        cs.getClusterSettings().addSettingsUpdateConsumer(whitelistingEnabledSetting,this::setIsWhitelistingEnabled);
+        cs.getClusterSettings().addSettingsUpdateConsumer(whitelistedAPISetting,this::setWhitelistedAPIs);
     }
 
     public RestHandler wrap(RestHandler original) {
         return new RestHandler() {
 
+
             @Override
             public void handleRequest(RestRequest request, RestChannel channel, NodeClient client) throws Exception {
                 org.apache.logging.log4j.ThreadContext.clearAll();
+                //also need to add a superadmin check
                 if (checkRequestIsWhitelisted(request, channel, client)) {
                     if (!checkAndAuthenticateRequest(request, channel, client)) {
                         original.handleRequest(request, channel, client);
@@ -121,17 +150,8 @@ public class OpenDistroSecurityRestFilter {
 
     private boolean checkRequestIsWhitelisted(RestRequest request, RestChannel channel,
             NodeClient client) throws IOException {
-        //String temp = threadContext.getHeader(ConfigConstants.OPENDISTRO_SECURITY_WHITELISTING_ENABLED);
-        boolean isWhitelistingEnabled = settings.getAsBoolean(
-                ConfigConstants.OPENDISTRO_SECURITY_WHITELISTING_ENABLED,
-                false
-        );
-        HashSet<String> whitelistedAPIs = new HashSet<>(settings.getAsList(
-                OPENDISTRO_SECURITY_WHITELISTED_APIS,
-                defaultWhitelistedAPIs
-        ));
         //if whitelisting is enabled but the request path is not whitelisted then return false, otherwise true.
-        if (isWhitelistingEnabled && !whitelistedAPIs.contains(request.path())) {
+        if (this.isWhitelistingEnabled && !this.whitelistedAPIs.contains(request.path())) {
             channel.sendResponse(createNotWhitelistedErrorResponse(
                     channel,
                     request.path() + " API not whitelisted",

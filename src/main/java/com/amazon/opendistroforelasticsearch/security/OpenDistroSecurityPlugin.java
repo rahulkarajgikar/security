@@ -75,12 +75,8 @@ import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.network.NetworkModule;
 import org.elasticsearch.common.network.NetworkService;
-import org.elasticsearch.common.settings.ClusterSettings;
-import org.elasticsearch.common.settings.IndexScopedSettings;
-import org.elasticsearch.common.settings.Setting;
+import org.elasticsearch.common.settings.*;
 import org.elasticsearch.common.settings.Setting.Property;
-import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.settings.SettingsFilter;
 import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.common.util.PageCacheRecycler;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
@@ -194,11 +190,17 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
     private volatile NamedXContentRegistry namedXContentRegistry = null;
     private volatile DlsFlsRequestValve dlsFlsValve = null;
 
+    private final Setting<Boolean> whitelistingEnabledSetting =
+            Setting.boolSetting(ConfigConstants.OPENDISTRO_SECURITY_WHITELISTING_ENABLED,false,
+                    Setting.Property.NodeScope, Setting.Property.Dynamic);
+    private final Setting<List<String>> whitelistedAPISetting =
+            Setting.listSetting(ConfigConstants.OPENDISTRO_SECURITY_WHITELISTED_APIS,
+                    DEFAULT_WHITELISTED_APIS, Function.identity(), Setting.Property.NodeScope, Setting.Property.Dynamic);
 
     /**
      * Used in case the "opendistro_security_whitelisted_apis" setting is not found
      */
-    private static final List<String> DEFAULT_WHITELISTED_APIS = new ArrayList<>(Arrays.asList(
+    public static final List<String> DEFAULT_WHITELISTED_APIS = new ArrayList<>(Arrays.asList(
             "/_cat/plugins",
             "/_cluster/health",
             "/_cat/nodes")
@@ -748,6 +750,8 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
         this.localClient = localClient;
         this.environment = environment;
 
+        //settingsUpdateConsumer for whitelisting enabled
+
         final List<Object> components = new ArrayList<Object>();
 
         if (client || disabled) {
@@ -785,8 +789,6 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
         backendRegistry = new BackendRegistry(settings, adminDns, xffResolver, auditLog, threadPool);
         
         final CompatConfig compatConfig = new CompatConfig(environment);
-        
-
 
         evaluator = new PrivilegesEvaluator(clusterService, threadPool, cr, resolver, auditLog,
                 settings, privilegesInterceptor, cih, irr, advancedModulesEnabled);
@@ -832,7 +834,8 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
         components.add(odsi);
         components.add(dcf);
 
-        securityRestHandler = new OpenDistroSecurityRestFilter(backendRegistry, auditLog, threadPool, principalExtractor, settings, configPath, compatConfig);
+        securityRestHandler = new OpenDistroSecurityRestFilter(backendRegistry, auditLog, threadPool,
+                principalExtractor, settings, configPath, compatConfig, cs, whitelistingEnabledSetting, whitelistedAPISetting);
 
         return components;
 
@@ -870,13 +873,10 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
         if(!sslOnly) {
 
             //Enables whitelisting, by default it is disabled to avoid issues
-            settings.add(Setting.boolSetting(ConfigConstants.OPENDISTRO_SECURITY_WHITELISTING_ENABLED,false,
-                    Property.NodeScope,Property.Dynamic,Property.Consistent));
+            settings.add(whitelistingEnabledSetting);
 
             //List of whitelisted APIs
-            settings.add(Setting.listSetting(ConfigConstants.OPENDISTRO_SECURITY_WHITELISTED_APIS,
-                    DEFAULT_WHITELISTED_APIS,Function.identity(),Property.NodeScope,Property.Dynamic,
-                    Property.Consistent));
+            settings.add(whitelistedAPISetting);
 
             settings.add(Setting.listSetting(ConfigConstants.OPENDISTRO_SECURITY_AUTHCZ_ADMIN_DN, Collections.emptyList(), Function.identity(), Property.NodeScope)); //not filtered here
     
