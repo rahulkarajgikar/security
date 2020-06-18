@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 
 import com.amazon.opendistroforelasticsearch.security.securityconf.impl.NodesDn;
 import com.amazon.opendistroforelasticsearch.security.support.WildcardMatcher;
@@ -85,7 +84,7 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
 
         return original;
     }
-    
+
     protected final Logger log = LogManager.getLogger(this.getClass());
     private final ConfigurationRepository cr;
     private final AtomicBoolean initialized = new AtomicBoolean();
@@ -95,7 +94,7 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
     private final InternalAuthenticationBackend iab = new InternalAuthenticationBackend();
 
     SecurityDynamicConfiguration<?> config;
-    
+
     public DynamicConfigFactory(ConfigurationRepository cr, final Settings esSettings,
             final Path configPath, Client client, ThreadPool threadPool, ClusterInfoHolder cih) {
         super();
@@ -112,7 +111,7 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
         } else {
             log.info("Static resources will not be loaded.");
         }
-        
+
         if(esSettings.getAsBoolean(ConfigConstants.OPENDISTRO_SECURITY_UNSUPPORTED_LOAD_STATIC_RESOURCES, true)) {
             try {
                 loadStaticConfig();
@@ -122,11 +121,11 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
         } else {
             log.info("Static resources will not be loaded.");
         }
-        
+
         registerDCFListener(this.iab);
         this.cr.subscribeOnChange(this);
     }
-    
+
     @Override
     public void onChange(Map<CType, SecurityDynamicConfiguration<?>> typeToConfig) {
 
@@ -137,6 +136,8 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
         SecurityDynamicConfiguration<?> rolesmapping = cr.getConfiguration(CType.ROLESMAPPING);
         SecurityDynamicConfiguration<?> tenants = cr.getConfiguration(CType.TENANTS);
         SecurityDynamicConfiguration<?> nodesDn = cr.getConfiguration(CType.NODESDN);
+        SecurityDynamicConfiguration<?> whitelistingSetting = cr.getConfiguration(CType.WHITELISTING_SETTINGS);
+
 
         if(log.isDebugEnabled()) {
             String logmsg = "current config (because of "+typeToConfig.keySet()+")\n"+
@@ -146,9 +147,10 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
             " roles: "+roles.getImplementingClass()+" with "+roles.getCEntries().size()+" entries\n"+
             " rolesmapping: "+rolesmapping.getImplementingClass()+" with "+rolesmapping.getCEntries().size()+" entries\n"+
             " tenants: "+tenants.getImplementingClass()+" with "+tenants.getCEntries().size()+" entries\n"+
-            " nodesdn: "+nodesDn.getImplementingClass()+" with "+nodesDn.getCEntries().size()+" entries";
+            " nodesdn: "+nodesDn.getImplementingClass()+" with "+nodesDn.getCEntries().size()+" entries\n"+
+            " whitelistingSetting: "+ whitelistingSetting.getImplementingClass()+" with "+whitelistingSetting.getCEntries().size()+" entries\n";
             log.debug(logmsg);
-            
+
         }
 
         final DynamicConfigModel dcm;
@@ -157,7 +159,7 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
         final NodesDnModel nm = new NodesDnModelImpl(nodesDn);
         if(config.getImplementingClass() == ConfigV7.class) {
                 //statics
-                
+
                 if(roles.containsAny(staticRoles)) {
                     throw new StaticResourceException("Cannot override static roles");
                 }
@@ -175,23 +177,23 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
                 if(!actionGroups.add(staticActionGroups) && !staticActionGroups.getCEntries().isEmpty()) {
                     throw new StaticResourceException("Unable to load static action groups");
                 }
-                
+
 
                 log.debug("Static action groups loaded ({})", staticActionGroups.getCEntries().size());
-                
+
                 if(tenants.containsAny(staticTenants)) {
                     throw new StaticResourceException("Cannot override static tenants");
                 }
                 if(!tenants.add(staticTenants) && !staticTenants.getCEntries().isEmpty()) {
                     throw new StaticResourceException("Unable to load static tenants");
                 }
-                
+
 
                 log.debug("Static tenants loaded ({})", staticTenants.getCEntries().size());
 
                 log.debug("Static configuration loaded (total roles: {}/total action groups: {}/total tenants: {})", roles.getCEntries().size(), actionGroups.getCEntries().size(), tenants.getCEntries().size());
 
-            
+
 
             //rebuild v7 Models
             dcm = new DynamicConfigModelV7(getConfigV7(config), esSettings, configPath, iab);
@@ -212,28 +214,29 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
         eventBus.post(dcm);
         eventBus.post(ium);
         eventBus.post(nm);
+        eventBus.post(whitelistingSetting);
 
         initialized.set(true);
-        
+
     }
-    
+
     private static ConfigV6 getConfigV6(SecurityDynamicConfiguration<?> sdc) {
         @SuppressWarnings("unchecked")
         SecurityDynamicConfiguration<ConfigV6> c = (SecurityDynamicConfiguration<ConfigV6>) sdc;
         return c.getCEntry("opendistro_security");
     }
-    
+
     private static ConfigV7 getConfigV7(SecurityDynamicConfiguration<?> sdc) {
         @SuppressWarnings("unchecked")
         SecurityDynamicConfiguration<ConfigV7> c = (SecurityDynamicConfiguration<ConfigV7>) sdc;
         return c.getCEntry("config");
     }
-    
+
     @Override
     public final boolean isInitialized() {
         return initialized.get();
     }
-    
+
     public void registerDCFListener(Object listener) {
         eventBus.register(listener);
     }
@@ -241,11 +244,11 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
     public void unregisterDCFListener(Object listener) {
         eventBus.unregister(listener);
     }
-    
+
     private static class InternalUsersModelV7 extends InternalUsersModel {
-        
+
         SecurityDynamicConfiguration<InternalUserV7> configuration;
-        
+
         public InternalUsersModelV7(SecurityDynamicConfiguration<InternalUserV7> configuration) {
             super();
             this.configuration = configuration;
@@ -279,18 +282,18 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
             InternalUserV7 tmp = configuration.getCEntry(user);
             return tmp==null?null:tmp.getHash();
         }
-        
+
         public List<String> getOpenDistroSecurityRoles(String user) {
             InternalUserV7 tmp = configuration.getCEntry(user);
             return tmp==null?Collections.emptyList():tmp.getOpendistro_security_roles();
         }
     }
-    
+
     private static class InternalUsersModelV6 extends InternalUsersModel {
-        
+
         SecurityDynamicConfiguration<InternalUserV6> configuration;
-        
-        
+
+
 
         public InternalUsersModelV6(SecurityDynamicConfiguration<InternalUserV6> configuration) {
             super();
@@ -324,7 +327,7 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
             InternalUserV6 tmp = configuration.getCEntry(user);
             return tmp==null?null:tmp.getHash();
         }
-        
+
         public List<String> getOpenDistroSecurityRoles(String user) {
             return Collections.emptyList();
         }
@@ -346,5 +349,5 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
                 ImmutableMap.toImmutableMap(Entry::getKey, entry -> WildcardMatcher.from(entry.getValue().getNodesDn(), false)));
         }
     }
-   
+
 }

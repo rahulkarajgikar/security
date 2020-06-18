@@ -1228,6 +1228,7 @@ public class OpenDistroSecurityAdmin {
             success = uploadFile(tc, cd+"tenants.yml", index, "tenants", legacy, resolveEnvVars) && success;
         }
 
+        success = uploadFile(tc, cd+"whitelisting_settings.yml", index, "whitelisting_settings", legacy, resolveEnvVars) && success;
         success = uploadFile(tc, cd+"nodes_dn.yml", index, "nodesdn", legacy, resolveEnvVars, true) && success;
 
         if(!success) {

@@ -104,10 +104,12 @@ public class ConfigModelV7 extends ConfigModel {
     public Set<String> getAllConfiguredTenantNames() {
         return Collections.unmodifiableSet(tenants.getCEntries().keySet());
     }
-    
+
     public SecurityRoles getSecurityRoles() {
         return securityRoles;
     }
+
+    //public WhitelistingSetting getWhitelistingSetting(){ return whitelistingSetting; }
     
     private static interface ActionGroupResolver {
         Set<String> resolvedActions(final List<String> actions);
