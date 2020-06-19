@@ -28,6 +28,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
+
+//TODO: MAYBE CHANGE PUT TO PATCH TO AVOID CREATING NEW NAMES
 public class WhitelistApiAction extends AbstractApiAction {
     private static final List<Route> routes = ImmutableList.of(
             new Route(RestRequest.Method.GET, "/_opendistro/_security/api/whitelist/"),

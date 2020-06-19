@@ -39,6 +39,8 @@ import java.util.List;
 
 import javax.net.ssl.SSLPeerUnverifiedException;
 
+import com.amazon.opendistroforelasticsearch.security.configuration.AdminDNs;
+import com.amazon.opendistroforelasticsearch.security.securityconf.WhitelistingSettingsModel;
 import com.amazon.opendistroforelasticsearch.security.securityconf.impl.WhitelistingSettings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -77,7 +79,6 @@ public class OpenDistroSecurityRestFilter {
     private final Settings settings;
     private final Path configPath;
     private final CompatConfig compatConfig;
-    private WhitelistingSettings whitelistingSettings;
     private static final List<String> defaultWhitelistedAPIs = new ArrayList<>(Arrays.asList(
             "/_cat/plugins",
             "/_cluster/health",
@@ -105,17 +106,20 @@ public class OpenDistroSecurityRestFilter {
 
     }
 
-    public RestHandler wrap(RestHandler original) {
+    public RestHandler wrap(RestHandler original, AdminDNs adminDNs) {
         return new RestHandler() {
 
 
             @Override
             public void handleRequest(RestRequest request, RestChannel channel, NodeClient client) throws Exception {
                 org.apache.logging.log4j.ThreadContext.clearAll();
-                //also need to add a superadmin check
-                if (checkRequestIsWhitelisted(request, channel, client)) {
+
                     if (!checkAndAuthenticateRequest(request, channel, client)) {
-                        original.handleRequest(request, channel, client);
+                        User user = threadContext.getTransient(ConfigConstants.OPENDISTRO_SECURITY_USER);
+                        boolean userIsSuperAdmin = adminDNs.isAdmin(user);
+                        //if user is superadmin, then we dont need to check if request is whitelisted
+                        if (userIsSuperAdmin || checkRequestIsWhitelisted(request, channel, client) ) {
+                            original.handleRequest(request, channel, client);
                     }
                 }
             }
@@ -133,6 +137,7 @@ public class OpenDistroSecurityRestFilter {
     private boolean checkRequestIsWhitelisted(RestRequest request, RestChannel channel,
             NodeClient client) throws IOException {
         //if whitelisting is enabled but the request path is not whitelisted then return false, otherwise true.
+        //TODO: ADD REGEX LOGIC FOR ENDPOINTS WITH PARAMETERS IN THE PATH
         if (this.isWhitelistingEnabled && !this.whitelistedAPIs.contains(request.path())) {
             channel.sendResponse(createNotWhitelistedErrorResponse(
                     channel,
@@ -209,11 +214,9 @@ public class OpenDistroSecurityRestFilter {
     }
 
     @Subscribe
-    public void onWhitelistingSettingChanged(WhitelistingSettings whitelistingSettings) {
+    public void onWhitelistingSettingChanged(WhitelistingSettingsModel whitelistingSettings) {
         log.info("whitelist setting has changed: it is now:\n "+ whitelistingSettings.toString());
-        this.whitelistingSettings = whitelistingSettings;
         this.isWhitelistingEnabled = whitelistingSettings.getIsWhitelistingEnabled();
         this.whitelistedAPIs = new HashSet<>(whitelistingSettings.getWhitelistedAPIs());
-
     }
 }

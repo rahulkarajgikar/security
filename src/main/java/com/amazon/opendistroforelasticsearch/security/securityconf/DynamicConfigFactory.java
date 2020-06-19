@@ -9,6 +9,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.amazon.opendistroforelasticsearch.security.securityconf.impl.NodesDn;
+import com.amazon.opendistroforelasticsearch.security.securityconf.impl.WhitelistingSettings;
 import com.amazon.opendistroforelasticsearch.security.support.WildcardMatcher;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -157,6 +158,7 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
         final InternalUsersModel ium;
         final ConfigModel cm;
         final NodesDnModel nm = new NodesDnModelImpl(nodesDn);
+        final WhitelistingSettingsModel wsm = new WhitelistingSettingsModelImpl(whitelistingSetting);
         if(config.getImplementingClass() == ConfigV7.class) {
                 //statics
 
@@ -214,7 +216,7 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
         eventBus.post(dcm);
         eventBus.post(ium);
         eventBus.post(nm);
-        eventBus.post(whitelistingSetting);
+        eventBus.post(wsm);
 
         initialized.set(true);
 
@@ -347,6 +349,35 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
         public Map<String, WildcardMatcher> getNodesDn() {
             return this.configuration.getCEntries().entrySet().stream().collect(
                 ImmutableMap.toImmutableMap(Entry::getKey, entry -> WildcardMatcher.from(entry.getValue().getNodesDn(), false)));
+        }
+    }
+
+    private static class WhitelistingSettingsModelImpl extends WhitelistingSettingsModel {
+
+        SecurityDynamicConfiguration<WhitelistingSettings> configuration;
+        WhitelistingSettings whitelistingSettings;
+
+        public WhitelistingSettingsModelImpl(SecurityDynamicConfiguration<?> configuration) {
+            super();
+            this.configuration = null == configuration.getCType() ? SecurityDynamicConfiguration.empty() :
+                    (SecurityDynamicConfiguration<WhitelistingSettings>)configuration;
+            this.whitelistingSettings = this.configuration.getCEntry("whitelisting_settings");
+
+        }
+
+        @Override
+        public List<String> getWhitelistedAPIs() {
+            return whitelistingSettings.getWhitelistedAPIs();
+        }
+
+        @Override
+        public Boolean getIsWhitelistingEnabled(){
+            return whitelistingSettings.getIsWhitelistingEnabled();
+        }
+
+        @Override
+        public String toString(){
+            return whitelistingSettings.toString();
         }
     }
 
