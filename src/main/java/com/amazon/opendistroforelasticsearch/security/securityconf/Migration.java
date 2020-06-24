@@ -113,7 +113,7 @@ public class Migration {
         migrated.setCType(whitelistingSetting.getCType());
         migrated.set_meta(new Meta());
         migrated.get_meta().setConfig_version(2);
-        migrated.get_meta().setType("whitelistingSetting");
+        migrated.get_meta().setType("whitelisting_settings");
 
         for(final Entry<String, WhitelistingSettings> entry: whitelistingSetting.getCEntries().entrySet()) {
             migrated.putCEntry(entry.getKey(), new WhitelistingSettings(entry.getValue()));

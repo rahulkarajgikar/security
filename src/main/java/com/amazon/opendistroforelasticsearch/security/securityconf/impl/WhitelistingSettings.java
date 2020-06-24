@@ -7,32 +7,33 @@ import java.util.Arrays;
 import java.util.List;
 
 public class WhitelistingSettings {
-    @JsonProperty(value = "isWhitelistingEnabled")
-    private boolean isWhitelistingEnabled;
+    @JsonProperty(value = "whitelistingEnabled")
+    private boolean whitelistingEnabled;
     @JsonProperty(value = "whitelistedAPIs")
     private List<String> whitelistedAPIs;
 
-    public WhitelistingSettings(){
-        isWhitelistingEnabled = false;
+    public WhitelistingSettings() {
+        whitelistingEnabled = false;
         whitelistedAPIs = new ArrayList<>(Arrays.asList(
                 "/_cat/plugins",
                 "/_cluster/health",
                 "/_cat/nodes"
         ));
     }
-    public WhitelistingSettings(WhitelistingSettings whitelistingSettings){
-        this.isWhitelistingEnabled = whitelistingSettings.getIsWhitelistingEnabled();
+
+    public WhitelistingSettings(WhitelistingSettings whitelistingSettings) {
+        this.whitelistingEnabled = whitelistingSettings.getWhitelistingEnabled();
         this.whitelistedAPIs = whitelistingSettings.getWhitelistedAPIs();
     }
 
-    @JsonProperty(value = "isWhitelistingEnabled")
-    public boolean getIsWhitelistingEnabled() {
-        return this.isWhitelistingEnabled;
+    @JsonProperty(value = "whitelistingEnabled")
+    public boolean getWhitelistingEnabled() {
+        return this.whitelistingEnabled;
     }
 
-    @JsonProperty(value = "isWhitelistingEnabled")
-    public void setIsWhitelistingEnabled(Boolean isWhitelistingEnabled) {
-        this.isWhitelistingEnabled = isWhitelistingEnabled;
+    @JsonProperty(value = "whitelistingEnabled")
+    public void setWhitelistingEnabled(Boolean whitelistingEnabled) {
+        this.whitelistingEnabled = whitelistingEnabled;
     }
 
     @JsonProperty(value = "whitelistedAPIs")
@@ -47,6 +48,6 @@ public class WhitelistingSettings {
 
     @Override
     public String toString() {
-        return "WhitelistingSetting [isWhitelistingEnabled=" + isWhitelistingEnabled + ", whitelistedAPIs=" + whitelistedAPIs +']';
+        return "WhitelistingSetting [whitelistingEnabled=" + whitelistingEnabled + ", whitelistedAPIs=" + whitelistedAPIs + ']';
     }
 }

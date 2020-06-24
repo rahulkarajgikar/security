@@ -97,7 +97,7 @@ public class MigrateApiAction extends AbstractApiAction {
 
         final Version oldestNodeVersion = cs.state().getNodes().getMinNodeVersion();
 
-        if(oldestNodeVersion.before(Version.V_7_0_0)) {
+        if (oldestNodeVersion.before(Version.V_7_0_0)) {
             badRequestResponse(channel, "Can not migrate configuration because cluster is not fully migrated.");
             return;
         }
@@ -170,6 +170,8 @@ public class MigrateApiAction extends AbstractApiAction {
                                                 XContentHelper.toXContent(rolesmappingV7, XContentType.JSON, false)));
                                         br.add(new IndexRequest().id(CType.NODESDN.toLCString()).source(CType.NODESDN.toLCString(),
                                                 XContentHelper.toXContent(nodesDnV7, XContentType.JSON, false)));
+                                        br.add(new IndexRequest().id(CType.WHITELISTING_SETTINGS.toLCString()).source(CType.WHITELISTING_SETTINGS.toLCString(),
+                                                XContentHelper.toXContent(whitelistingSettingV7, XContentType.JSON, false)));
                                     } catch (final IOException e1) {
                                         log.error("Unable to create bulk request " + e1, e1);
                                         internalErrorResponse(channel, "Unable to create bulk request.");

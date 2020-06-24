@@ -1,8 +1,7 @@
 package com.amazon.opendistroforelasticsearch.security.securityconf;
 
-import java.util.List;
+import com.amazon.opendistroforelasticsearch.security.securityconf.impl.WhitelistingSettings;
 
 public abstract class WhitelistingSettingsModel {
-    public abstract List<String> getWhitelistedAPIs();
-    public abstract Boolean getIsWhitelistingEnabled();
+    public abstract WhitelistingSettings getWhitelistingSettings();
 }

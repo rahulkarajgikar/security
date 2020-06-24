@@ -84,15 +84,15 @@ public class OpenDistroSecurityRestFilter {
             "/_cluster/health",
             "/_cat/nodes"
     ));
+    private static final Boolean defaultWhitelistingEnabled = false;
 
-    private boolean isWhitelistingEnabled;
+    private boolean whitelistingEnabled;
     private HashSet<String> whitelistedAPIs;
 
 
-
     public OpenDistroSecurityRestFilter(final BackendRegistry registry, final AuditLog auditLog,
-            final ThreadPool threadPool, final PrincipalExtractor principalExtractor,
-            final Settings settings, final Path configPath, final CompatConfig compatConfig) {
+                                        final ThreadPool threadPool, final PrincipalExtractor principalExtractor,
+                                        final Settings settings, final Path configPath, final CompatConfig compatConfig) {
         super();
         this.registry = registry;
         this.auditLog = auditLog;
@@ -101,44 +101,73 @@ public class OpenDistroSecurityRestFilter {
         this.settings = settings;
         this.configPath = configPath;
         this.compatConfig = compatConfig;
-        this.isWhitelistingEnabled = false;
+        this.whitelistingEnabled = false;
         this.whitelistedAPIs = new HashSet<>(defaultWhitelistedAPIs);
 
     }
 
+    /**
+     * This function wraps around all rest requests
+     * If the request is authenticated, then it goes through a whitelisting check.
+     * The whitelisting check works as follows:
+     * If whitelisting is not enabled, then requests are handled normally.
+     * If whitelisting is enabled, then SuperAdmin is allowed access to all APIs, regardless of what is currently whitelisted.
+     * If whitelisting is enabled, then Non-SuperAdmin is allowed to access only those APIs that are whitelisted in {@link #whitelistedAPIs}
+     * For example: if whitelisting is enabled and whitelistedAPIs = ["/_cat/nodes"], then SuperAdmin can access all APIs, but non SuperAdmin
+     * can only access "/_cat/nodes"
+     * Note: if whitelistedAPIs = ["/_cat/nodes"] is whitelisted, "/_cat/nodes/" will not work, because of the extra '/'.
+     * Further note: Some APIs are only accessible by SuperAdmin, regardless of whitelisting. For example: /_opendistro/_security/api/whitelist is only accessible by SuperAdmin.
+     * See {@link com.amazon.opendistroforelasticsearch.security.dlic.rest.api.WhitelistApiAction} for the implementation of this API.
+     * SuperAdmin is identified by credentials, which can be passed in the curl request.
+     */
     public RestHandler wrap(RestHandler original, AdminDNs adminDNs) {
         return new RestHandler() {
-
 
             @Override
             public void handleRequest(RestRequest request, RestChannel channel, NodeClient client) throws Exception {
                 org.apache.logging.log4j.ThreadContext.clearAll();
-
-                    if (!checkAndAuthenticateRequest(request, channel, client)) {
-                        User user = threadContext.getTransient(ConfigConstants.OPENDISTRO_SECURITY_USER);
-                        boolean userIsSuperAdmin = adminDNs.isAdmin(user);
-                        //if user is superadmin, then we dont need to check if request is whitelisted
-                        if (userIsSuperAdmin || checkRequestIsWhitelisted(request, channel, client) ) {
-                            original.handleRequest(request, channel, client);
+                if (!checkAndAuthenticateRequest(request, channel, client)) {
+                    User user = threadContext.getTransient(ConfigConstants.OPENDISTRO_SECURITY_USER);
+                    if (userIsSuperAdmin(user, adminDNs) || checkRequestIsWhitelisted(request, channel, client)) {
+                        original.handleRequest(request, channel, client);
                     }
                 }
             }
         };
     }
 
+    /**
+     * Checks if a given user is a SuperAdmin
+     */
+    private Boolean userIsSuperAdmin(User user, AdminDNs adminDNs) {
+        if (user != null && adminDNs.isAdmin(user)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Helper function to generate an error when an unauthorized user (i.e non superadmin) tries to access an API that is not whitelisted.
+     */
     private BytesRestResponse createNotWhitelistedErrorResponse(RestChannel channel, String errorMessage,
-            RestStatus status) throws IOException {
+                                                                RestStatus status) throws IOException {
         return new BytesRestResponse(status, channel.newErrorBuilder().startObject()
                 .field("error", errorMessage)
                 .field("status", status.getStatus())
                 .endObject());
     }
 
+    /**
+     * Checks against {@link #whitelistedAPIs} that a given request path is whitelisted, for non SuperAdmin .
+     * For SuperAdmin this function is bypassed.
+     * For example: if "/_cat/nodes" is whitelisted, then it will be an, allowed request, otherwise will not be.
+     * Note: currently, if "/_cat/nodes" is whitelisted, then "/_cat/nodes/" will not be allowed, because the path is different.
+     * In a future version, could add a regex check to improve the functionality.
+     */
     private boolean checkRequestIsWhitelisted(RestRequest request, RestChannel channel,
-            NodeClient client) throws IOException {
+                                              NodeClient client) throws IOException {
         //if whitelisting is enabled but the request path is not whitelisted then return false, otherwise true.
-        //TODO: ADD REGEX LOGIC FOR ENDPOINTS WITH PARAMETERS IN THE PATH
-        if (this.isWhitelistingEnabled && !this.whitelistedAPIs.contains(request.path())) {
+        if (this.whitelistingEnabled && !this.whitelistedAPIs.contains(request.path())) {
             channel.sendResponse(createNotWhitelistedErrorResponse(
                     channel,
                     request.path() + " API not whitelisted",
@@ -151,7 +180,7 @@ public class OpenDistroSecurityRestFilter {
 
 
     private boolean checkAndAuthenticateRequest(RestRequest request, RestChannel channel,
-            NodeClient client) throws Exception {
+                                                NodeClient client) throws Exception {
 
         threadContext.putTransient(ConfigConstants.OPENDISTRO_SECURITY_ORIGIN, Origin.REST.toString());
 
@@ -214,9 +243,9 @@ public class OpenDistroSecurityRestFilter {
     }
 
     @Subscribe
-    public void onWhitelistingSettingChanged(WhitelistingSettingsModel whitelistingSettings) {
-        log.info("whitelist setting has changed: it is now:\n "+ whitelistingSettings.toString());
-        this.isWhitelistingEnabled = whitelistingSettings.getIsWhitelistingEnabled();
-        this.whitelistedAPIs = new HashSet<>(whitelistingSettings.getWhitelistedAPIs());
+    public void onWhitelistingSettingChanged(WhitelistingSettingsModel whitelistingSettingsModel) {
+        WhitelistingSettings whitelistingSettings = whitelistingSettingsModel.getWhitelistingSettings();
+        this.whitelistingEnabled = (whitelistingSettings == null ? defaultWhitelistingEnabled : whitelistingSettings.getWhitelistingEnabled());
+        this.whitelistedAPIs = new HashSet<>((whitelistingSettings == null || whitelistingSettings.getWhitelistedAPIs() == null) ? defaultWhitelistedAPIs : whitelistingSettings.getWhitelistedAPIs());
     }
 }

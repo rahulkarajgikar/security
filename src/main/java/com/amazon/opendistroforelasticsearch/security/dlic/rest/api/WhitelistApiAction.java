@@ -11,6 +11,7 @@ import com.amazon.opendistroforelasticsearch.security.privileges.PrivilegesEvalu
 import com.amazon.opendistroforelasticsearch.security.securityconf.impl.CType;
 import com.amazon.opendistroforelasticsearch.security.securityconf.impl.SecurityDynamicConfiguration;
 import com.amazon.opendistroforelasticsearch.security.ssl.transport.PrincipalExtractor;
+import com.amazon.opendistroforelasticsearch.security.support.ConfigConstants;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import org.elasticsearch.action.index.IndexResponse;
@@ -29,40 +30,60 @@ import java.nio.file.Path;
 import java.util.List;
 
 
-//TODO: MAYBE CHANGE PUT TO PATCH TO AVOID CREATING NEW NAMES
+/**
+ * This class implements GET and PUT operations to manage dynamic WhitelistingSettings.
+ * <p>
+ * These APIs are only accessible to SuperAdmin since the configuration controls what APIs are accessible by normal users.
+ * Eg: If whitelisting is enabled, and a specific API like "/_cat/nodes" is not whitelisted, then only the SuperAdmin can use "/_cat/nodes"st
+ * These APIs allow the SuperAdmin to enable/disable whitelisting, and also change the list of whitelisted APIs.
+ * <p>
+ * A SuperAdmin is identified by a certificate which represents a distinguished name(DN).
+ * SuperAdmin DN's can be set in {@link ConfigConstants#OPENDISTRO_SECURITY_AUTHCZ_ADMIN_DN}
+ * SuperAdmin certificate for the default superuser is stored as a kirk.pem file in config folder of elasticsearch
+ * <p>
+ * Example calling the PUT API as SuperAdmin using curl (if http basic auth is on):
+ * curl -v --cacert path_to_config/root-ca.pem --cert path_to_config/kirk.pem --key path_to_config/kirk-key.pem -XPUT https://localhost:9200/_opendistro/_security/api/whitelist -H "Content-Type: application/json" -d’
+ * {
+ * "whitelistingEnabled" : false,
+ * "whitelistedAPIs" : ["/_cat/nodes","/_opendistro/_security/api/whitelist","/_opendistro/_security/api/securityconfig"]
+ * }
+ * ‘
+ * <p>
+ * Currently, whitelisting checks the path for equality, so make sure you don't have errors in the whitelisted APIs.
+ * eg: whitelisting "/_cat/nodes/" is different from whitelisting /_cat/nodes" (extra '/' results in a different path
+ * <p>
+ * The backing data is stored in {@link ConfigConstants#OPENDISTRO_SECURITY_CONFIG_INDEX_NAME} which is populated during bootstrap.
+ * For existing clusters, {@link com.amazon.opendistroforelasticsearch.security.tools.OpenDistroSecurityAdmin} tool can
+ * be used to populate the index.
+ * <p>
+ */
 public class WhitelistApiAction extends AbstractApiAction {
     private static final List<Route> routes = ImmutableList.of(
-            new Route(RestRequest.Method.GET, "/_opendistro/_security/api/whitelist/"),
-            //new Route(RestRequest.Method.DELETE, "/_opendistro/_security/api/whitelisting/{name}"),
-            new Route(RestRequest.Method.PUT, "/_opendistro/_security/api/whitelist/")
-            //new Route(RestRequest.Method.PATCH, "/_opendistro/_security/api/whitelist/{name}")
+            new Route(RestRequest.Method.GET, "/_opendistro/_security/api/whitelist"),
+            new Route(RestRequest.Method.PUT, "/_opendistro/_security/api/whitelist")
     );
 
     private static final String name = "whitelisting_settings";
 
     @Inject
     public WhitelistApiAction(final Settings settings, final Path configPath, final RestController controller, final Client client,
-                                 final AdminDNs adminDNs, final ConfigurationRepository cl, final ClusterService cs,
-                                 final PrincipalExtractor principalExtractor, final PrivilegesEvaluator evaluator, ThreadPool threadPool, AuditLog auditLog) {
+                              final AdminDNs adminDNs, final ConfigurationRepository cl, final ClusterService cs,
+                              final PrincipalExtractor principalExtractor, final PrivilegesEvaluator evaluator, ThreadPool threadPool, AuditLog auditLog) {
         super(settings, configPath, controller, client, adminDNs, cl, cs, principalExtractor, evaluator, threadPool, auditLog);
     }
 
     @Override
     protected void handleApiRequest(final RestChannel channel, final RestRequest request, final Client client) throws IOException {
-        //TODO: Add this part back later and figure out a way to become super user.
-        /*
         if (!isSuperAdmin()) {
             forbidden(channel, "API allowed only for super admin.");
             return;
         }
-        */
         super.handleApiRequest(channel, request, client);
     }
-    //POST,DELETE,PUT DONE.
-    //NOW DO GET
+
     @Override
     protected void handleGet(final RestChannel channel, RestRequest request, Client client, final JsonNode content)
-            throws IOException{
+            throws IOException {
 
 
         final SecurityDynamicConfiguration<?> configuration = load(getConfigName(), true);
@@ -80,7 +101,6 @@ public class WhitelistApiAction extends AbstractApiAction {
     protected void handlePut(final RestChannel channel, final RestRequest request, final Client client, final JsonNode content) throws IOException {
         final SecurityDynamicConfiguration<?> existingConfiguration = load(getConfigName(), false);
 
-        //MIGHT NOT NEED THIS
         if (existingConfiguration.getSeqNo() < 0) {
             forbidden(channel, "Security index need to be updated to support '" + getConfigName().toLCString() + "'. Use OpenDistroSecurityAdmin to populate.");
             return;
@@ -110,7 +130,7 @@ public class WhitelistApiAction extends AbstractApiAction {
 
     @Override
     protected Endpoint getEndpoint() {
-        return Endpoint.WHITELIST;
+        return Endpoint.WHITELISTING_SETTINGS;
     }
 
     @Override
